@@ -1,0 +1,96 @@
+# RASEEN data dashboard: checks that run on GitHub.
+#
+# On every push or pull request that touches raseen-data-dashboard/:
+#   1. runs the tests, including one that opens the dashboard in Chrome and checks it
+#      reads a run exactly like the Python importer
+#   2. reads every CSV in raseen-data-dashboard/examples/ (add your own runs there)
+#      and shows a table of them on the run's Summary page
+#   3. puts the dashboard with the example runs in a downloadable bundle
+# Optionally (see the README) it also publishes the dashboard as a web page.
+
+name: RASEEN data dashboard
+
+on:
+  push:
+    paths: ["raseen-data-dashboard/**", ".github/workflows/raseen-dashboard.yml"]
+  pull_request:
+    paths: ["raseen-data-dashboard/**", ".github/workflows/raseen-dashboard.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: raseen-data-dashboard
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -r requirements.txt playwright
+
+      - name: Chrome for the dashboard test
+        run: command -v google-chrome || python -m playwright install --with-deps chromium
+
+      - name: Tests (Python and the dashboard in Chrome)
+        env:
+          RASEEN_REQUIRE_BROWSER: "1"
+        run: python -m pytest -v
+
+      - name: Read every example run
+        run: |
+          shopt -s nullglob
+          files=(examples/*.csv examples/*.csv.gz)
+          echo "## Runs in examples/" >> "$GITHUB_STEP_SUMMARY"
+          if [ ${#files[@]} -eq 0 ]; then echo "No CSV files." >> "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          python -m raseen_data.gazebo_import --csv "${files[@]}" --out /tmp/runs \
+            --summary-md /tmp/summary.md --strict
+          cat /tmp/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bundle the dashboard with the example runs
+        if: always()
+        run: |
+          mkdir -p /tmp/bundle
+          cp viewer/raseen_dashboard.html /tmp/bundle/
+          cp -r examples /tmp/bundle/
+          if [ -d /tmp/runs ]; then python -m raseen_data.dashboard --data /tmp/runs --out /tmp/bundle/examples_dashboard.html; fi
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: raseen-dashboard
+          path: /tmp/bundle
+
+  # Publishes the dashboard at https://<owner>.github.io/<repo>/
+  # Off until someone turns on Pages for the repo and sets the variable
+  # DASHBOARD_PAGES = true (Settings > Secrets and variables > Actions > Variables).
+  pages:
+    needs: check
+    if: vars.DASHBOARD_PAGES == 'true' && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the site
+        run: |
+          mkdir -p _site
+          cp raseen-data-dashboard/viewer/raseen_dashboard.html _site/index.html
+          cp -r raseen-data-dashboard/examples _site/examples
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
