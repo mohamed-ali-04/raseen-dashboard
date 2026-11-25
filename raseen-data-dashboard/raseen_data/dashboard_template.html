@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RASEEN data dashboard</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f4f3ef; --surface: #fcfcfb; --border: #dedcd4;
+  --text: #0b0b0b; --text2: #52514e; --muted: #8a8880;
+  --line: #2a78d6; --water: #dbe9fa; --grid: #e6e4dc; --band: #eb6834;
+  --good: #0ca30c; --warning: #fab219; --critical: #d03b3b; --ship: #2b3440;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #121211; --surface: #1a1a19; --border: #33332f;
+    --text: #f0efec; --text2: #c3c2b7; --muted: #8f8e85;
+    --line: #3987e5; --water: #17304d; --grid: #2b2b28; --band: #d95926; --ship: #d7dbe0;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--page); color: var(--text);
+  font: 15px/1.45 Inter, system-ui, -apple-system, "Segoe UI", Arial, sans-serif; }
+main { max-width: 1240px; margin: 0 auto; padding: 20px; display: grid; gap: 14px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
+h1 { font-size: 22px; margin: 0; font-weight: 650; }
+.sub { color: var(--text2); }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.controls label { color: var(--text2); display: flex; align-items: center; gap: 6px; }
+select, button, .open { font: inherit; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; }
+button, .open { cursor: pointer; font-weight: 600; }
+button { min-width: 84px; }
+.open { display: inline-flex; align-items: center; border-color: var(--line); color: var(--line); }
+.open input { display: none; }
+input[type=range] { flex: 1; min-width: 200px; accent-color: var(--line); }
+.clock { font-variant-numeric: tabular-nums; min-width: 120px; text-align: right; color: var(--text2); }
+h2 { font-size: 14px; margin: 0 0 8px; font-weight: 600; color: var(--text2); }
+.watchbar { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text2); }
+.watchbar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.link { background: none; border: 0; padding: 0; min-width: 0; color: var(--line); font-weight: 500; text-decoration: underline; cursor: pointer; }
+.msgs { font-size: 13px; color: var(--text2); display: grid; gap: 2px; }
+.msgs .bad { color: var(--critical); }
+.empty-state { text-align: center; padding: 48px 20px; border: 2px dashed var(--border); border-radius: 12px; color: var(--text2); }
+.empty-state h2 { font-size: 18px; color: var(--text); margin-bottom: 6px; }
+body.empty .needs-run { display: none; }
+body:not(.empty) .empty-state { display: none; }
+body.dragging main { outline: 3px dashed var(--line); outline-offset: -6px; border-radius: 12px; }
+.tiles { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.tile .k { color: var(--text2); font-size: 12.5px; }
+.tile .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.tile .u { font-size: 13px; color: var(--text2); font-weight: 500; }
+.tile .s { font-size: 12px; color: var(--text2); }
+.status { display: flex; gap: 10px; align-items: center; }
+.charts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+svg { display: block; width: 100%; height: auto; }
+.axis { fill: var(--text2); font-size: 11px; }
+.lbl { fill: var(--text2); font-size: 11.5px; }
+.chartwrap { position: relative; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 8px; font-size: 12.5px; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  display: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.legend { display: flex; gap: 16px; color: var(--text2); font-size: 12.5px; margin-top: 6px; flex-wrap: wrap; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend svg { width: 14px; height: 14px; flex: none; }
+.status svg { width: 30px; height: 30px; flex: none; }
+.sw { width: 18px; height: 3px; background: var(--line); border-radius: 2px; }
+.bandsw { width: 14px; height: 10px; background: var(--band); opacity: .25; }
+.cmdsw { width: 0; height: 12px; border-left: 1.5px dashed var(--text2); }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+td, th { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { color: var(--text2); font-weight: 500; width: 34%; }
+.settings { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+footer { color: var(--muted); font-size: 12.5px; }
+@media (max-width: 1000px) { .tiles { grid-template-columns: repeat(3, 1fr); } .charts, .settings { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body class="empty">
+<main>
+<header>
+  <h1>RASEEN data dashboard</h1>
+  <span class="sub">Replays runs recorded by the RASEEN canal hydrodynamics plugin. Open or drop its CSV files.</span>
+</header>
+
+<section class="panel controls">
+  <button id="watch" class="open">Watch a folder…</button>
+  <button id="reconnect" class="open" hidden></button>
+  <label class="open">Open CSV files…<input id="file" type="file" multiple accept=".csv,.gz,.json"></label>
+  <input id="folder" type="file" webkitdirectory hidden>
+  <label class="needs-run">Run <select id="run"></select></label>
+  <button id="play" class="needs-run">Play</button>
+  <input id="seek" class="needs-run" type="range" min="0" max="1" step="1" value="0" aria-label="Time in the run">
+  <label class="needs-run">Speed <select id="speed"><option value="10">10×</option><option value="30" selected>30×</option><option value="90">90×</option></select></label>
+  <span class="clock needs-run" id="clock"></span>
+</section>
+<div class="watchbar" id="watchbar" hidden><span class="dot"></span><span id="watchtext"></span> <button id="unwatch" class="link">Stop watching</button></div>
+<div class="msgs" id="msgs"></div>
+
+<section class="empty-state">
+  <h2>No run loaded</h2>
+  <p><b>Watch a folder</b>: pick the folder the plugin records into. Every run in it appears here, and new runs
+  appear by themselves, even while they are still recording (Chrome or Edge).<br>
+  Or drop CSV files written by the plugin anywhere on this page. .csv and .csv.gz both work; the matching
+  <code>.identity.json</code> files add each run’s parameter set.<br>
+  Nothing is uploaded: the files are read in this browser only.</p>
+  <p><button id="example" class="link">Try the example run</button> (run_0001, recorded with the plugin on 25 Nov 2026)</p>
+</section>
+
+<section class="panel needs-run">
+  <h2>Track seen from above, x and y in metres at the same scale. The ship marker shows heading only, not size.</h2>
+  <svg id="map" viewBox="0 0 1200 300" role="img" aria-label="Ship track from above"></svg>
+  <div class="legend">
+    <span><i class="sw"></i>Track so far</span>
+    <span><i class="cmdsw"></i>y = 0, where the ship started</span>
+    <span id="endlegend"></span>
+  </div>
+</section>
+
+<div class="tiles needs-run">
+  <div class="tile status" id="status"></div>
+  <div class="tile"><div class="k">Speed</div><div class="v"><span id="v-speed"></span> <span class="u">kn</span></div></div>
+  <div class="tile"><div class="k">Heading</div><div class="v"><span id="v-head"></span><span class="u">°</span></div><div class="s">drift <span id="v-drift"></span>°</div></div>
+  <div class="tile"><div class="k">Rudder</div><div class="v"><span id="v-rud"></span><span class="u">°</span></div></div>
+  <div class="tile"><div class="k">Propeller</div><div class="v"><span id="v-rpm"></span> <span class="u">rpm</span></div><div class="s">thrust <span id="v-thr"></span> MN</div></div>
+  <div class="tile"><div class="k">Clearance under keel</div><div class="v"><span id="v-ukc"></span> <span class="u">m</span></div><div class="s">plugin: <span id="v-ukcs"></span></div></div>
+  <div class="tile"><div class="k">Bank sideways force</div><div class="v"><span id="v-bank"></span> <span class="u">MN</span></div><div class="s">shallow model: <span id="v-shal"></span></div></div>
+</div>
+
+<div class="charts needs-run">
+  <section class="panel"><h2>Lateral position y (m)</h2>
+    <div class="chartwrap"><svg id="c-y" viewBox="0 0 400 230"></svg><div class="tip"></div></div></section>
+  <section class="panel"><h2>Clearance under the keel, ukc_min (m)</h2>
+    <div class="chartwrap"><svg id="c-ukc" viewBox="0 0 400 230"></svg><div class="tip"></div></div></section>
+  <section class="panel"><h2>Bank sideways force, YbankA (MN)</h2>
+    <div class="chartwrap"><svg id="c-bank" viewBox="0 0 400 230"></svg><div class="tip"></div></div></section>
+</div>
+<div class="legend needs-run" style="margin-top:-6px">
+  <span><i class="cmdsw"></i>Command sent (rudder or propeller)</span>
+  <span><i class="bandsw"></i>Plugin reports its shallow-water model outside its range</span>
+</div>
+
+<section class="panel needs-run">
+  <h2>This run</h2>
+  <div class="settings"><table id="set-a"></table><table id="set-b"></table></div>
+</section>
+
+<footer>A run ends at the first row the plugin marks invalid (<code>valid</code> ≠ 1 or <code>validity_state</code> ≠ in_domain; without those columns, the first row with <code>ukc_min</code> ≤ 0). That row and everything after it are not shown, because the plugin switches its canal physics off there. One value per second is shown, the latest at or before each second. The status label comes from how the run ended (critical within 60 s of the end, caution within 180 s); it is not an AI prediction. These rules match <code>raseen_data/gazebo_import.py</code>.</footer>
+</main>
+
+<script>
+const DATA = __DATA__;
+const NS = "http://www.w3.org/2000/svg";
+const $ = id => document.getElementById(id);
+const el = (name, attrs, parent) => { const e = document.createElementNS(NS, name);
+  for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const KN = 0.514444, CRITICAL_S = 60, CAUTION_S = 180;
+const NUM = ["t", "x", "y", "heading_deg", "u", "drift_deg", "rudder_deg", "rpm", "thrust", "ukc_min", "bank_force_y"];
+const TXT = ["ukc_status", "shallow_status", "risk"];
+const RUNS = [];
+let run = null, time = 0, playing = false, last = 0;
+
+// ================= CSV -> run (same rules as gazebo_import.py) =================
+const REQUIRED = ["t", "x", "y", "yaw_deg", "u", "ukc_min"];
+const OPT_NUM = ["v", "r", "beta_deg", "rudder_deg", "rpm", "thrust", "X", "Y", "N", "YbankA", "Nbank", "d2b_inv", "ukc_fp", "valid"];
+const OPT_TXT = ["ukc_status", "shallow_status", "bank_status", "validity_state", "exit_reason"];
+const MAP = {t: "t", x: "x", y: "y", heading_deg: "yaw_deg", u: "u", drift_deg: "beta_deg", rudder_deg: "rudder_deg",
+  rpm: "rpm", thrust: "thrust", ukc_min: "ukc_min", bank_force_y: "YbankA", ukc_status: "ukc_status", shallow_status: "shallow_status"};
+
+function commandTimeline(t, raw, minHold = 0.5) {
+  if (raw.every(v => !Number.isFinite(v))) return [];
+  const val = raw.slice();
+  let lastV = NaN;
+  for (let i = 0; i < val.length; i++) { if (Number.isFinite(val[i])) lastV = val[i]; else val[i] = lastV; }
+  const first = val.find(Number.isFinite);
+  for (let i = 0; i < val.length && !Number.isFinite(val[i]); i++) val[i] = first;
+  const plateaus = []; let start = 0;
+  for (let i = 1; i <= val.length; i++) {
+    if (i === val.length || Math.abs(val[i] - val[start]) > 1e-9) {
+      if (t[i - 1] - t[start] >= minHold || start === 0 || i === val.length) plateaus.push([t[start], t[i - 1], val[start]]);
+      start = i;
+    }
+  }
+  const out = [], r = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
+  for (let k = 0; k + 1 < plateaus.length; k++) {
+    const [, e0, v0] = plateaus[k], [s1, , v1] = plateaus[k + 1];
+    if (Math.abs(v1 - v0) > 1e-6) out.push({t_command: r(e0, 2), t_reached: r(s1, 2), from: r(v0, 3), to: r(v1, 3)});
+  }
+  return out;
+}
+
+function runFromCsv(text, name, identity) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+  if (lines.length < 3) throw new Error("fewer than 2 data rows");
+  const head = lines[0].split(",").map(s => s.trim().replace(/^"|"$/g, ""));
+  const col = {}; head.forEach((h, i) => { if (!(h in col)) col[h] = i; });
+  const missing = REQUIRED.filter(c => !(c in col));
+  if (missing.length) throw new Error("not a RASEEN plugin CSV, missing columns " + missing.join(", "));
+  const has = new Set([...OPT_NUM, ...OPT_TXT].filter(c => c in col));
+  let rows = lines.slice(1).map(l => l.split(","));
+  const num = (r, c) => { if (!(c in col)) return NaN; const s = (r[col[c]] ?? "").trim(); return s === "" ? NaN : Number(s); };
+  const txt = (r, c) => (c in col ? (r[col[c]] ?? "").trim().replace(/^"|"$/g, "") : "");
+  rows = rows.filter(r => REQUIRED.every(c => Number.isFinite(num(r, c))));
+  if (rows.length < 2) throw new Error("fewer than 2 complete rows");
+  rows = rows.map((r, i) => [r, i]).sort((a, b) => (num(a[0], "t") - num(b[0], "t")) || (a[1] - b[1])).map(p => p[0]);
+  const D = {};
+  for (const c of [...REQUIRED, ...OPT_NUM]) D[c] = rows.map(r => num(r, c));
+  for (const c of OPT_TXT) D[c] = rows.map(r => txt(r, c));
+  const n = rows.length;
+
+  // where the usable part ends
+  let bad = -1;
+  for (let i = 0; i < n; i++) {
+    let b = false;
+    if (has.has("valid")) b = b || !(D.valid[i] === 1);
+    if (has.has("validity_state")) b = b || D.validity_state[i] !== "in_domain";
+    if (!has.has("valid") && !has.has("validity_state")) b = D.ukc_min[i] <= 0;
+    if (b) { bad = i; break; }
+  }
+  if (bad === 0) throw new Error("outside the plugin's valid range from its first row");
+  let end;
+  if (bad < 0) end = {outcome: "safe", end_index: n - 1, end_t: D.t[n - 1], exit_reason: "", rows_dropped: 0};
+  else {
+    const reason = D.exit_reason[bad] || (D.ukc_min[bad] <= 0 ? "ukc_min_reached_zero" : "marked_invalid");
+    const grounded = reason.includes("ukc") || D.ukc_min[bad] <= 0;
+    end = {outcome: grounded ? "grounded" : "domain_exit", end_index: bad - 1, end_t: D.t[bad], exit_reason: reason, rows_dropped: n - bad};
+  }
+  const ei = end.outcome === "safe" ? end.end_index : end.end_index + 1;
+  Object.assign(end, {x: D.x[ei], y: D.y[ei], heading_deg: D.yaw_deg[ei], u: D.u[ei]});
+
+  // one row per second: latest value at or before each grid time
+  const last = end.end_index, t0 = D.t[0], tEnd = D.t[last];
+  const grid = [];
+  for (let g = Math.ceil(t0); g <= Math.floor(tEnd) + 1e-9; g += 1) grid.push(g);
+  if (!grid.length || grid[grid.length - 1] < tEnd - 1e-9) grid.push(tEnd);
+  const R = {}; for (const k of [...NUM, ...TXT]) R[k] = [];
+  let j = 0;
+  for (const g of grid) {
+    while (j + 1 <= last && D.t[j + 1] <= g) j++;
+    R.t.push(g);
+    for (const [k, src] of Object.entries(MAP)) if (k !== "t") R[k].push(D[src][j]);
+  }
+  const outcomeForLabels = end.outcome === "safe" ? "safe" : "grounded";
+  R.risk = R.t.map(t => { const ttg = outcomeForLabels === "grounded" ? end.end_t - t : Infinity;
+    return ttg <= CRITICAL_S ? "critical" : ttg <= CAUTION_S ? "caution" : "normal"; });
+  const dts = D.t.slice(1).map((v, i) => v - D.t[i]).sort((a, b) => a - b);
+  R.meta = {run_id: name.replace(/\.csv(\.gz)?$/i, ""), source: "gazebo", file: name, outcome: end.outcome, end,
+    n_rows: R.t.length, duration_s: R.t[R.t.length - 1], source_rows: n, source_period_s: dts[Math.floor(dts.length / 2)] || 0,
+    commands: {rudder_deg: commandTimeline(D.t, D.rudder_deg), rpm: commandTimeline(D.t, D.rpm)},
+    plugin: identity || {}, optional_columns_present: [...has].sort(), note: ""};
+  return R;
+}
+
+async function readFile(f) {
+  if (/\.gz$/i.test(f.name)) {
+    if (typeof DecompressionStream === "undefined") throw new Error("this browser cannot open .gz files; unzip it first");
+    return await new Response(f.stream().pipeThrough(new DecompressionStream("gzip"))).text();
+  }
+  return await f.text();
+}
+function msg(text, bad) { const d = document.createElement("div"); d.textContent = text; if (bad) d.className = "bad"; $("msgs").prepend(d);
+  while ($("msgs").children.length > 8) $("msgs").lastChild.remove(); }
+async function loadFiles(files) {
+  files = [...files];
+  const ids = {};
+  for (const f of files.filter(f => /\.identity\.json$/i.test(f.name))) {
+    try { ids[f.name.replace(/\.identity\.json$/i, "")] = JSON.parse(await f.text()); } catch (e) { msg("Skipped " + f.name + ": not valid JSON", true); }
+  }
+  let added = null;
+  for (const f of files.filter(f => /\.csv(\.gz)?$/i.test(f.name))) {
+    try {
+      const r = runFromCsv(await readFile(f), f.name, idFor(ids, f.name));
+      const id = r.meta.run_id = uniqueId(r.meta.run_id);
+      addRun(r); added = added || id;
+      msg("Loaded " + f.name + ": " + r.meta.source_rows + " rows → " + r.meta.n_rows + " seconds, " +
+        (r.meta.outcome === "safe" ? "stayed in the valid range" : r.meta.outcome.replace("_", " ") + " at " + fmtT(r.meta.end.end_t)));
+    } catch (e) { msg("Skipped " + f.name + ": " + e.message, true); }
+  }
+  for (const f of files.filter(f => !/\.csv(\.gz)?$/i.test(f.name) && !/\.identity\.json$/i.test(f.name))) msg("Skipped " + f.name + ": not a .csv, .csv.gz or .identity.json file", true);
+  if (added) { $("run").value = added; loadRun(added); }
+}
+$("file").addEventListener("change", e => { loadFiles(e.target.files); e.target.value = ""; });
+let dragDepth = 0;
+addEventListener("dragenter", e => { e.preventDefault(); dragDepth++; document.body.classList.add("dragging"); });
+addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); } });
+addEventListener("dragover", e => e.preventDefault());
+addEventListener("drop", e => { e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging"); loadFiles(e.dataTransfer.files); });
+
+// The example run sits in examples/ next to the page (GitHub Pages) or one level up (the repo).
+$("example").addEventListener("click", async () => {
+  for (const base of ["examples/", "../examples/"]) {
+    try {
+      const get = async n => { const r = await fetch(base + n); if (!r.ok) throw new Error(r.status); return r; };
+      const csv = await get("run_0001.csv.gz"), idf = await get("run_0001.csv.identity.json");
+      await loadFiles([new File([await csv.blob()], "run_0001.csv.gz"), new File([await idf.blob()], "run_0001.csv.identity.json")]);
+      return;
+    } catch (e) { /* try the next place */ }
+  }
+  msg("This browser blocks reading the example from here. Use “Open CSV files” and pick examples/run_0001.csv.gz.", true);
+});
+
+// ================= watch a folder =================
+// Chrome and Edge let a page read a folder the user picked, and read it again later.
+// The page rescans it every few seconds: new files become new runs, files that grew are
+// re-read (a run still recording), deleted files disappear. The folder is remembered.
+const WATCH_MS = 3000, isRun = n => /\.csv(\.gz)?$/i.test(n), isId = n => /\.identity\.json$/i.test(n);
+let dirHandle = null, watchTimer = null, scanning = false;
+const seen = new Map();            // file name -> {key, runId, err}
+
+function kv(mode, fn) {            // tiny IndexedDB key-value store, to remember the folder
+  return new Promise((res, rej) => {
+    const o = indexedDB.open("raseen-replay", 1);
+    o.onupgradeneeded = () => o.result.createObjectStore("kv");
+    o.onerror = () => rej(o.error);
+    o.onsuccess = () => { const tx = o.result.transaction("kv", mode), rq = fn(tx.objectStore("kv"));
+      tx.oncomplete = () => res(rq.result); tx.onerror = () => rej(tx.error); };
+  });
+}
+async function scanFolder(first) {
+  if (!dirHandle || scanning) return;
+  scanning = true;
+  try {
+    const files = [];
+    try {
+      for await (const [name, h] of dirHandle.entries())
+        if (h.kind === "file" && (isRun(name) || isId(name))) files.push(await h.getFile());
+    } catch (e) { stopWatching("Lost access to the folder (" + e.message + "). Pick it again with “Watch a folder”."); return; }
+    const ids = {};
+    for (const f of files.filter(f => isId(f.name))) {
+      try { ids[f.name.replace(/\.identity\.json$/i, "")] = JSON.parse(await f.text()); } catch (e) { /* half-written: next scan */ }
+    }
+    const csvs = files.filter(f => isRun(f.name)).sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+    let newest = null;
+    for (const f of csvs) {
+      const key = f.size + ":" + f.lastModified + ":" + (idFor(ids, f.name) ? 1 : 0), prev = seen.get(f.name);
+      if (prev && prev.key === key) continue;
+      try {
+        const r = runFromCsv(await readFile(f), f.name, idFor(ids, f.name));
+        const known = prev && prev.runId && RUNS.some(x => x.meta.run_id === prev.runId);
+        r.meta.run_id = known ? prev.runId : uniqueId(r.meta.run_id);
+        r.meta.folder = dirHandle.name;
+        if (known) replaceRun(r);
+        else { addRun(r); newest = r.meta.run_id;
+          if (!first) msg("New run in " + dirHandle.name + ": " + f.name); }
+        seen.set(f.name, {key, runId: r.meta.run_id, err: ""});
+      } catch (e) {
+        // a run that just started has too few rows: say so once, try again next scan
+        if (!prev || prev.err !== e.message) msg((prev && prev.runId ? "Could not update " : "Waiting for ") + f.name + ": " + e.message, !/fewer than 2/.test(e.message));
+        seen.set(f.name, {key, runId: prev ? prev.runId : null, err: e.message});
+      }
+    }
+    const names = new Set(csvs.map(f => f.name));
+    for (const [name, s] of [...seen]) if (!names.has(name)) { if (s.runId) removeRun(s.runId); seen.delete(name); }
+    // open the newest run when the page starts, or when a new one appears and nothing is playing
+    if (newest && (first || !playing || !run)) { $("run").value = newest; loadRun(newest); }
+    const n = csvs.length;
+    $("watchtext").textContent = "Watching folder “" + dirHandle.name + "”: " + n + " CSV file" + (n === 1 ? "" : "s") +
+      ", checked every " + WATCH_MS / 1000 + " s.";
+  } finally { scanning = false; }
+}
+async function startWatching(h) {
+  stopWatching();
+  dirHandle = h;
+  $("watchbar").hidden = false; $("reconnect").hidden = true;
+  try { await kv("readwrite", st => st.put(h, "folder")); } catch (e) { /* page can't store it: pick again next time */ }
+  await scanFolder(true);
+  if (dirHandle) watchTimer = setInterval(() => scanFolder(false), WATCH_MS);
+}
+function stopWatching(reason) {
+  clearInterval(watchTimer); watchTimer = null; dirHandle = null;
+  for (const [, s] of seen) if (s.runId) removeRun(s.runId);
+  seen.clear();
+  $("watchbar").hidden = true;
+  if (reason) msg(reason, true);
+}
+$("watch").addEventListener("click", async () => {
+  if (!window.showDirectoryPicker) { $("folder").click(); return; }      // Firefox, Safari: read once
+  try { await startWatching(await showDirectoryPicker({id: "raseen-runs", mode: "read"})); }
+  catch (e) { if (e.name !== "AbortError") msg("Could not open the folder: " + e.message +
+    (window.self !== window.top ? ". Download this page and open it from your computer to watch a folder." : ""), true); }
+});
+$("folder").addEventListener("change", e => {
+  msg("This browser reads the folder once and does not watch it. Use Chrome or Edge to pick up new runs automatically.");
+  loadFiles(e.target.files); e.target.value = "";
+});
+$("unwatch").addEventListener("click", async () => {
+  stopWatching(); try { await kv("readwrite", st => st.delete("folder")); } catch (e) {}
+});
+$("reconnect").addEventListener("click", async () => {
+  const h = $("reconnect").handle;
+  try { if (await h.requestPermission({mode: "read"}) === "granted") await startWatching(h); }
+  catch (e) { msg("Could not reopen the folder: " + e.message, true); }
+});
+(async () => {                     // reopen the folder used last time
+  if (!window.showDirectoryPicker) return;
+  let h; try { h = await kv("readonly", st => st.get("folder")); } catch (e) { return; }
+  if (!h) return;
+  if (await h.queryPermission({mode: "read"}) === "granted") { startWatching(h); return; }
+  const b = $("reconnect"); b.handle = h; b.textContent = "Watch “" + h.name + "” again"; b.hidden = false;
+})();
+
+// ================= display =================
+const cap = s => s ? s[0].toUpperCase() + s.slice(1).replace(/_/g, " ") : "";
+const fin = Number.isFinite;
+const fx = (v, d) => fin(v) ? v.toFixed(d) : "–";
+const fmtT = t => Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
+const idxAt = t => { let lo = 0, hi = run.t.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (run.t[m] <= t) lo = m; else hi = m - 1; } return lo; };
+const lerp = (a, i, t) => { if (i + 1 >= a.length || !fin(a[i + 1])) return a[i];
+  const f = (t - run.t[i]) / (run.t[i + 1] - run.t[i]); return a[i] + (a[i + 1] - a[i]) * Math.max(0, Math.min(1, f)); };
+
+const MW = 1200, MH = 300, MP = 40, map = $("map");
+let mx, my, trail, ship;
+function drawMapBase() {
+  map.replaceChildren();
+  let x0 = Math.min(...run.x), x1 = Math.max(...run.x), y0 = Math.min(...run.y, 0), y1 = Math.max(...run.y, 0);
+  const padX = Math.max(30, (x1 - x0) * 0.05), padY = Math.max(30, (y1 - y0) * 0.15);
+  x0 -= padX; x1 += padX; y0 -= padY; y1 += padY;
+  const s = Math.min((MW - 2 * MP) / (x1 - x0), (MH - 2 * MP) / (y1 - y0));
+  const cx = MW / 2 - s * (x0 + x1) / 2, cy = MH / 2 + s * (y0 + y1) / 2;
+  mx = x => cx + s * x; my = y => cy - s * y;
+  el("rect", {x: 0, y: 0, width: MW, height: MH, fill: "var(--water)", rx: 6}, map);
+  const step = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000].find(v => v * s > 70) || 5000;
+  for (let v = Math.ceil(x0 / step) * step; v <= x1; v += step) {
+    el("line", {x1: mx(v), x2: mx(v), y1: 0, y2: MH, stroke: "var(--grid)"}, map);
+    el("text", {x: mx(v) + 4, y: MH - 8, class: "axis"}, map).textContent = "x " + v + " m";
+  }
+  for (let v = Math.ceil(y0 / step) * step; v <= y1; v += step) {
+    if (v === 0) continue;
+    el("line", {x1: 0, x2: MW, y1: my(v), y2: my(v), stroke: "var(--grid)"}, map);
+    el("text", {x: 8, y: my(v) - 4, class: "axis"}, map).textContent = "y " + v + " m";
+  }
+  el("line", {x1: 0, x2: MW, y1: my(0), y2: my(0), stroke: "var(--text2)", "stroke-dasharray": "8 6"}, map);
+  el("text", {x: 8, y: my(0) - 6, class: "lbl"}, map).textContent = "y = 0, start";
+  trail = el("polyline", {fill: "none", stroke: "var(--line)", "stroke-width": 2.5, "stroke-linejoin": "round"}, map);
+  const m = run.meta, e = m.end;
+  if (m.outcome !== "safe" && fin(e.x)) {
+    const ex = mx(e.x), ey = my(e.y);
+    el("path", {d: `M${ex-8},${ey-8}L${ex+8},${ey+8}M${ex-8},${ey+8}L${ex+8},${ey-8}`, stroke: "var(--critical)", "stroke-width": 3}, map);
+    el("text", {x: Math.min(ex + 12, MW - 170), y: ey + (ey > MH - 40 ? -10 : 18), class: "lbl"}, map).textContent =
+      (m.outcome === "grounded" ? "Aground" : "Left valid range") + " at " + fmtT(e.end_t);
+  }
+  ship = el("g", {}, map);
+  el("path", {d: "M18,0 L-12,-9 L-6,0 L-12,9 Z", fill: "var(--ship)", stroke: "var(--surface)", "stroke-width": 1.5}, ship);
+}
+function drawMap(i) {
+  const x = lerp(run.x, i, time), y = lerp(run.y, i, time), h = lerp(run.heading_deg, i, time);
+  let pts = "";
+  for (let k = 0; k <= i; k++) pts += mx(run.x[k]).toFixed(1) + "," + my(run.y[k]).toFixed(1) + " ";
+  trail.setAttribute("points", pts + mx(x).toFixed(1) + "," + my(y).toFixed(1));
+  ship.setAttribute("transform", `translate(${mx(x)},${my(y)}) rotate(${-h})`);
+}
+
+const M = {l: 46, r: 12, t: 34, b: 26}, W = 400, H = 230, charts = [];
+function makeChart(id, key, opts) {
+  const svg = $(id), tip = svg.parentNode.querySelector(".tip"), c = {svg, tip, key, opts};
+  const tAt = e => { const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * W;
+    return Math.max(0, Math.min(run.tmax, (px - M.l) / (W - M.l - M.r) * run.tmax)); };
+  svg.addEventListener("mousemove", e => {
+    if (!c.ok) return;
+    const i = idxAt(tAt(e)), r = svg.getBoundingClientRect();
+    c.hover.setAttribute("x1", c.xs(run.t[i])); c.hover.setAttribute("x2", c.xs(run.t[i])); c.hover.style.display = "";
+    tip.style.display = "block";
+    tip.textContent = fmtT(run.t[i]) + "   " + opts.fmt(run[key][i]) + "   " + cap(run.risk[i]);
+    tip.style.left = Math.min((c.xs(run.t[i]) / W) * r.width + 10, r.width - 190) + "px"; tip.style.top = "38px";
+  });
+  svg.addEventListener("mouseleave", () => { if (c.hover) c.hover.style.display = "none"; tip.style.display = "none"; });
+  svg.addEventListener("click", e => { setPlaying(false); setTime(tAt(e)); });
+  charts.push(c); return c;
+}
+function niceStep(span) { const raw = span / 4, p = Math.pow(10, Math.floor(Math.log10(raw)));
+  return [1, 2, 5, 10].map(m => m * p).find(v => v >= raw); }
+function drawChart(c) {
+  const svg = c.svg; svg.replaceChildren(); c.tip.style.display = "none";
+  c.xs = t => M.l + t / run.tmax * (W - M.l - M.r);
+  const vals = run[c.key].map(c.opts.scale || (v => v)), good = vals.filter(fin);
+  c.ok = good.length > 0;
+  if (!c.ok) {
+    el("text", {x: W / 2, y: H / 2, class: "lbl", "text-anchor": "middle"}, svg).textContent = "Not in this file";
+    c.cursor = c.hover = el("line", {}, svg); return;
+  }
+  let lo = Math.min(...good, ...(c.opts.include || [])), hi = Math.max(...good, ...(c.opts.include || []));
+  if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+  const st = niceStep(hi - lo); lo = Math.floor(lo / st) * st; hi = Math.ceil(hi / st) * st;
+  const ys = v => M.t + (hi - v) / (hi - lo) * (H - M.t - M.b);
+  if (run.shallowOut != null) {
+    const x1 = c.xs(run.shallowOut);
+    el("rect", {x: x1, y: M.t, width: Math.max(1, c.xs(run.tmax) - x1), height: H - M.t - M.b, fill: "var(--band)", opacity: 0.18}, svg);
+  }
+  for (let v = lo; v <= hi + 1e-9; v += st) {
+    el("line", {x1: M.l, x2: W - M.r, y1: ys(v), y2: ys(v), stroke: "var(--grid)"}, svg);
+    el("text", {x: M.l - 6, y: ys(v) + 4, class: "axis", "text-anchor": "end"}, svg).textContent = +v.toFixed(6);
+  }
+  const tst = run.tmax > 1200 ? 300 : run.tmax > 600 ? 180 : run.tmax > 180 ? 60 : 30;
+  for (let m = 0; m <= run.tmax; m += tst)
+    el("text", {x: c.xs(m), y: H - 8, class: "axis", "text-anchor": m + tst / 2 > run.tmax ? "end" : "middle"}, svg).textContent =
+      tst >= 60 ? (m / 60) + " min" : m + " s";
+  run.events.forEach((ev, k) => {
+    const x = c.xs(ev.t);
+    el("line", {x1: x, x2: x, y1: M.t, y2: H - M.b, stroke: "var(--text2)", "stroke-dasharray": "3 4", "stroke-width": 1.2}, svg);
+    if (c.opts.labels) el("text", {x: x + 3, y: 12 + (k % 2) * 13, class: "lbl", "font-size": 10.5}, svg).textContent = ev.short;
+  });
+  if (c.opts.zero) {
+    el("line", {x1: M.l, x2: W - M.r, y1: ys(0), y2: ys(0), stroke: "var(--critical)", "stroke-width": 1.5, "stroke-dasharray": "6 5"}, svg);
+    el("text", {x: M.l + 4, y: ys(0) - 5, class: "lbl"}, svg).textContent = c.opts.zero;
+  }
+  let d = "", pen = false;
+  for (let i = 0; i < run.t.length; i++) {
+    if (!fin(vals[i])) { pen = false; continue; }
+    d += (pen ? "L" : "M") + c.xs(run.t[i]).toFixed(1) + "," + ys(vals[i]).toFixed(1); pen = true;
+  }
+  el("path", {d, fill: "none", stroke: "var(--line)", "stroke-width": 2, "stroke-linejoin": "round"}, svg);
+  c.cursor = el("line", {y1: M.t, y2: H - M.b, stroke: "var(--text)", "stroke-width": 1.5}, svg);
+  c.hover = el("line", {y1: M.t, y2: H - M.b, stroke: "var(--muted)"}, svg); c.hover.style.display = "none";
+}
+makeChart("c-y", "y", {fmt: v => fx(v, 1) + " m", labels: true});
+makeChart("c-ukc", "ukc_min", {fmt: v => fx(v, 2) + " m", include: [0], zero: "Keel touches the bed"});
+makeChart("c-bank", "bank_force_y", {fmt: v => fx(v / 1e6, 2) + " MN", scale: v => v / 1e6, include: [0]});
+
+const ICON = {
+  normal: '<svg viewBox="0 0 34 34"><circle cx="17" cy="17" r="14" fill="var(--good)"/></svg>',
+  caution: '<svg viewBox="0 0 34 34"><path d="M17 3 L32 30 H2 Z" fill="var(--warning)"/></svg>',
+  critical: '<svg viewBox="0 0 34 34"><path d="M11 3h12l8 8v12l-8 8H11l-8-8V11z" fill="var(--critical)"/></svg>',
+};
+function render() {
+  const i = idxAt(time), end = i === run.t.length - 1 && run.meta.outcome !== "safe";
+  drawMap(i);
+  for (const c of charts) { c.cursor.setAttribute("x1", c.xs(time)); c.cursor.setAttribute("x2", c.xs(time)); }
+  const risk = run.risk[i];
+  $("status").innerHTML = ICON[risk] + '<div><div class="v" style="font-size:19px">' +
+    (end ? (run.meta.outcome === "grounded" ? "Aground" : "Range exit") : cap(risk)) + '</div><div class="s">training label</div></div>';
+  $("v-speed").textContent = fx(lerp(run.u, i, time) / KN, 1);
+  $("v-head").textContent = fx(lerp(run.heading_deg, i, time), 1);
+  $("v-drift").textContent = fx(run.drift_deg[i], 1);
+  $("v-rud").textContent = fx(run.rudder_deg[i], 1);
+  $("v-rpm").textContent = fx(run.rpm[i], 0);
+  $("v-thr").textContent = fx(run.thrust[i] / 1e6, 2);
+  $("v-ukc").textContent = fx(lerp(run.ukc_min, i, time), 2);
+  $("v-ukcs").textContent = run.ukc_status[i] ? run.ukc_status[i].replace(/_/g, " ") : "–";
+  $("v-bank").textContent = fx(run.bank_force_y[i] / 1e6, 2);
+  $("v-shal").textContent = run.shallow_status[i] ? run.shallow_status[i].replace(/_/g, " ") : "–";
+  $("seek").value = Math.round(time);
+  $("clock").textContent = fmtT(time) + " / " + fmtT(run.tmax);
+}
+function setTime(t) { time = Math.max(0, Math.min(run.tmax, t)); render(); }
+function setPlaying(p) { playing = p && !!run; $("play").textContent = p ? "Pause" : "Play"; if (p) { last = performance.now(); requestAnimationFrame(tick); } }
+function tick(now) {
+  if (!playing) return;
+  time += (now - last) / 1000 * Number($("speed").value); last = now;
+  if (time >= run.tmax) { time = run.tmax; render(); setPlaying(false); return; }
+  render(); requestAnimationFrame(tick);
+}
+function settings() {
+  const m = run.meta, e = m.end, cmds = [];
+  for (const c of m.commands.rpm || []) cmds.push([c.t_command, "Propeller " + c.from + " → " + c.to + " rpm"]);
+  for (const c of m.commands.rudder_deg || []) cmds.push([c.t_command, "Rudder " + c.from + "° → " + c.to + "°"]);
+  cmds.sort((a, b) => a[0] - b[0]);
+  const pset = (m.plugin && m.plugin.parameter_set_id) || "";
+  const a = [["Run", m.run_id], ["File", m.file || m.source_csv || "–"],
+    ["Rows", m.source_rows + " plugin rows (every " + fx(m.source_period_s, 2) + " s) → " + m.n_rows + " shown, one per second"],
+    ["Outcome", m.outcome === "safe" ? "Stayed in the valid range to the end of the file" :
+      cap(m.outcome) + " at " + fmtT(e.end_t) + " (" + (e.exit_reason || "").replace(/_/g, " ") + ")"],
+    ["Where it ended", "x " + fx(e.x, 0) + " m, y " + fx(e.y, 1) + " m, heading " + fx(e.heading_deg, 1) + "°, " + fx(e.u / KN, 1) + " kn"],
+    ["Plugin rows dropped from the exit on", e.rows_dropped]];
+  const b = [["Commands, read from the data", cmds.map(c => fmtT(c[0]) + "  " + c[1]).join("\n") || "None found"],
+    ["Parameter set", pset ? pset + (/QUALITATIVE/.test(pset) ? " (marked qualitative by the plugin’s authors)" : "") :
+      "Not recorded (add the run’s .identity.json file)"],
+    ["Recorded by", m.plugin && m.plugin.plugin_lib ? m.plugin.plugin_lib.split(/[\\/]/).pop() +
+      (m.plugin.vessel_class_label ? ", vessel " + m.plugin.vessel_class_label : "") : "Not recorded (add the run’s .identity.json file)"],
+    ["Optional columns in the file", (m.optional_columns_present || []).length + " of 19"],
+    ["Note", m.note || "–"]];
+  const html = r => r.map(([k, v]) => "<tr><th>" + esc(k) + "</th><td>" + esc(v).replace(/\n/g, "<br>") + "</td></tr>").join("");
+  $("set-a").innerHTML = html(a); $("set-b").innerHTML = html(b);
+}
+const idFor = (ids, name) => ids[name] || ids[name.replace(/\.gz$/i, "")];   // run_1.csv(.gz) <- run_1.csv.identity.json
+const optText = r => r.meta.run_id + " · " + cap(r.meta.outcome) + (r.meta.note ? " · " + r.meta.note : "");
+function normalize(r) {
+  for (const k of NUM) r[k] = r[k].map(v => (v === null || v === undefined) ? NaN : v);
+  for (const k of TXT) r[k] = r[k].map(v => v == null ? "" : String(v));
+  return r;
+}
+function addRun(r) {
+  RUNS.push(normalize(r));
+  const o = document.createElement("option"); o.value = r.meta.run_id; o.textContent = optText(r);
+  $("run").appendChild(o);
+  document.body.classList.remove("empty");
+}
+function replaceRun(r) {           // same run_id, new data (the file grew or changed)
+  const i = RUNS.findIndex(x => x.meta.run_id === r.meta.run_id);
+  RUNS[i] = normalize(r);
+  [...$("run").options].find(o => o.value === r.meta.run_id).textContent = optText(r);
+  if (run && run.meta.run_id === r.meta.run_id) {
+    const atEnd = time >= run.tmax - 1e-6, t = time, p = playing;
+    loadRun(r.meta.run_id);
+    time = atEnd ? run.tmax : Math.min(t, run.tmax);      // following the end: stay at the newest second
+    render(); if (p && time < run.tmax) setPlaying(true);
+  }
+}
+function removeRun(id) {
+  const i = RUNS.findIndex(x => x.meta.run_id === id);
+  if (i < 0) return;
+  RUNS.splice(i, 1);
+  [...$("run").options].find(o => o.value === id).remove();
+  if (run && run.meta.run_id === id) {
+    run = null; setPlaying(false);
+    if (RUNS.length) { $("run").value = RUNS[RUNS.length - 1].meta.run_id; loadRun($("run").value); }
+  }
+  if (!RUNS.length) document.body.classList.add("empty");
+}
+const uniqueId = base => { let id = base, k = 2; while (RUNS.some(x => x.meta.run_id === id)) id = base + "_" + k++; return id; };
+function loadRun(id) {
+  run = RUNS.find(r => r.meta.run_id === id);
+  run.tmax = run.t[run.t.length - 1];
+  const so = run.shallow_status.findIndex(s => s === "out_of_domain");
+  run.shallowOut = so >= 0 ? run.t[so] : null;
+  run.events = [];
+  for (const c of run.meta.commands.rpm || []) run.events.push({t: c.t_command, short: c.to + " rpm"});
+  for (const c of run.meta.commands.rudder_deg || []) run.events.push({t: c.t_command, short: c.to + "°"});
+  run.events.sort((a, b) => a.t - b.t);
+  $("endlegend").innerHTML = run.meta.outcome === "safe" ? "" :
+    '<svg viewBox="0 0 14 14"><path d="M2 2L12 12M2 12L12 2" stroke="var(--critical)" stroke-width="2.5"/></svg> Where the run ended';
+  setPlaying(false); time = 0;
+  $("seek").max = Math.floor(run.tmax);
+  drawMapBase(); charts.forEach(drawChart); settings(); render();
+}
+$("run").addEventListener("change", e => loadRun(e.target.value));
+$("play").addEventListener("click", () => { if (!playing && time >= run.tmax) time = 0; setPlaying(!playing); });
+$("seek").addEventListener("input", e => { setPlaying(false); setTime(Number(e.target.value)); });
+for (const r of DATA.runs) addRun(r);
+if (RUNS.length) loadRun(RUNS[0].meta.run_id);
+</script>
+</body>
+</html>
